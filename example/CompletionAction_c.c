@@ -29,12 +29,22 @@ struct CompletionArgs
     enkiCompletionAction* pCompletionAction;
 };
 
-void CompletionFunction( void* pArgs_, uint32_t threadNum_ )
+void CompletionFunctionPreComplete( void* pArgs_, uint32_t threadNum_ )
 {
     struct CompletionArgs* pCompletionArgs = pArgs_;
     struct enkiParamsTaskSet params = enkiGetParamsTaskSet( pCompletionArgs->pTask );
     uint32_t* pTaskNum = params.pArgs;
-    printf("CompletionFunction for task %u running on thread %u\n", *pTaskNum, threadNum_ );
+    printf("CompletionFunction Pre Complete for task %u running on thread %u\n", *pTaskNum, threadNum_ );
+
+    // in this function we're not doing anything, but we could alter a dependent tasks's arguments such as setSize
+}
+
+void CompletionFunctionPostComplete( void* pArgs_, uint32_t threadNum_ )
+{
+    struct CompletionArgs* pCompletionArgs = pArgs_;
+    struct enkiParamsTaskSet params = enkiGetParamsTaskSet( pCompletionArgs->pTask );
+    uint32_t* pTaskNum = params.pArgs;
+    printf("CompletionFunction  Post Complete for task %u running on thread %u\n", *pTaskNum, threadNum_ );
     enkiDeleteCompletionAction( pETS, pCompletionArgs->pCompletionAction );
     enkiDeleteTaskSet( pETS, pCompletionArgs->pTask );
     free( pTaskNum );
@@ -66,9 +76,10 @@ int main(int argc, const char * argv[])
         pTaskNum = malloc(sizeof(uint32_t)); // we will free in CompletionFunction
         *pTaskNum = run;
         enkiSetArgsTaskSet( pCompletionArgs->pTask, pTaskNum );
-        pCompletionArgs->pCompletionAction = enkiCreateCompletionAction( pETS, CompletionFunction );
+        pCompletionArgs->pCompletionAction = enkiCreateCompletionAction( pETS, CompletionFunctionPreComplete, CompletionFunctionPostComplete );
         paramsCompletionAction = enkiGetParamsCompletionAction( pCompletionArgs->pCompletionAction );
-        paramsCompletionAction.pArgs       = pCompletionArgs;
+        paramsCompletionAction.pArgsPreComplete       = pCompletionArgs; // we are using the same arguments but could use different ones
+        paramsCompletionAction.pArgsPostComplete      = pCompletionArgs;
         paramsCompletionAction.pDependency = enkiGetCompletableFromTaskSet( pCompletionArgs->pTask );
         enkiSetParamsCompletionAction( pCompletionArgs->pCompletionAction, paramsCompletionAction );
 
