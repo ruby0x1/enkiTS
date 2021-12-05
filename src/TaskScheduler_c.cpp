@@ -81,18 +81,22 @@ struct enkiPinnedTask : IPinnedTask
 
 struct enkiCompletionAction : ICompletable
 {
-    void OnDependenciesComplete( TaskScheduler* pTaskScheduler_, uint32_t threadNum_ )
+    void OnDependenciesComplete( TaskScheduler* pTaskScheduler_, uint32_t threadNum_ ) override
     {
         if( completionFunctionPreComplete )
         {
             completionFunctionPreComplete( pArgsPreComplete, threadNum_ );
         }
 
+        // make temporaries for post completion as this task could get deleted after OnDependenciesComplete
+        enkiCompletionFunction tempCompletionFunctionPostComplete = completionFunctionPostComplete;
+        void*                  ptempArgsPostComplete              = pArgsPostComplete;
+
         ICompletable::OnDependenciesComplete( pTaskScheduler_, threadNum_ );
-        
-        if( completionFunctionPostComplete )
+
+        if( tempCompletionFunctionPostComplete )
         {
-            completionFunctionPostComplete( pArgsPostComplete, threadNum_ );
+            tempCompletionFunctionPostComplete( ptempArgsPostComplete, threadNum_ );
         }
     }
 
