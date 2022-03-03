@@ -23,20 +23,18 @@
 
 enkiTaskScheduler*    pETS;
 
-struct CompletionArgsA
+struct CompletionArgs_ModifyTask
 {
-    enkiTaskSet*          pTaskA;
-    enkiCompletionAction* pCompletionActionA;
     enkiTaskSet*          pTaskB;
     uint32_t              run;
 };
 
-struct CompletionArgsB
+struct CompletionArgs_DeleteTask
 {
-    enkiTaskSet*          pTaskB;
-    enkiDependency*       pDependency;
-    enkiCompletionAction* pCompletionActionB;
-    uint32_t              run;
+    enkiTaskSet*          pTask;
+    enkiDependency*       pDependency;       // in this example only 1 or 0 dependencies, but generally could be an array
+    enkiCompletionAction* pCompletionAction;
+    uint32_t              run;               // only required for example output, not needed for a general purpose delete task
 };
 
 // In this example all our TaskSet functions share the same args struct, but we could use different one
@@ -49,56 +47,43 @@ struct TaskSetArgs
 
 void CompletionFunctionPreComplete_ModifyDependentTask( void* pArgs_, uint32_t threadNum_ )
 {
-    struct CompletionArgsA* pCompletionArgs  = pArgs_;
-    struct enkiParamsTaskSet paramsTaskNext = enkiGetParamsTaskSet( pCompletionArgs->pTaskB );
+    struct CompletionArgs_ModifyTask* pCompletionArgs_ModifyTask  = pArgs_;
+    struct enkiParamsTaskSet paramsTaskNext = enkiGetParamsTaskSet( pCompletionArgs_ModifyTask->pTaskB );
 
-    printf("CompletionFunctionA Pre Complete for run %u running on thread %u\n",
-            pCompletionArgs->run, threadNum_ );
+    printf("CompletionFunctionPreComplete_ModifyDependentTask for run %u running on thread %u\n",
+            pCompletionArgs_ModifyTask->run, threadNum_ );
 
     // in this function we can modify the parameters of any task which depends on this CompletionFunction
     // pre complete functions should not be used to delete the current CompletionAction, for that use PostComplete functions
     paramsTaskNext.setSize = 10; // modify the set size of the next task - for example this could be based on output from previous task
-    enkiSetParamsTaskSet( pCompletionArgs->pTaskB, paramsTaskNext );
+    enkiSetParamsTaskSet( pCompletionArgs_ModifyTask->pTaskB, paramsTaskNext );
 
-    // pCompletionArgs reused in Post function, so do not free
+    free( pCompletionArgs_ModifyTask );
 }
 
-void CompletionFunctionPostComplete_DeleteTaskA( void* pArgs_, uint32_t threadNum_ )
+
+void CompletionFunctionPostComplete_DeleteTask( void* pArgs_, uint32_t threadNum_ )
 {
-    struct CompletionArgsA* pCompletionArgs = pArgs_;
+    struct CompletionArgs_DeleteTask* pCompletionArgs_DeleteTask = pArgs_;
 
-    printf("CompletionFunctionPostComplete_DeleteTaskA Post Complete for run %u running on thread %u\n",
-           pCompletionArgs->run, threadNum_ );
+    printf("CompletionFunctionPostComplete_DeleteTask for run %u running on thread %u\n",
+           pCompletionArgs_DeleteTask->run, threadNum_ );
 
-    // free memory
+    // can free memory in post complete
 
-    free( enkiGetParamsTaskSet( pCompletionArgs->pTaskA ).pArgs );
-    enkiDeleteTaskSet( pETS, pCompletionArgs->pTaskA );
-
-    enkiDeleteCompletionAction( pETS, pCompletionArgs->pCompletionActionA );
-
-    // safe to free our own args in this example as no other function dereferences them
-    free( pCompletionArgs );
-}
-
-void CompletionFunctionPostComplete_DeleteTaskB( void* pArgs_, uint32_t threadNum_ )
-{
-    struct CompletionArgsB* pCompletionArgs = pArgs_;
-
-    printf("CompletionFunctionB Post Complete for run %u running on thread %u\n",
-           pCompletionArgs->run, threadNum_ );
-
-    // free memory
     // note must delete a dependency before you delete the dependency task and the task to run on completion
-    enkiDeleteDependency( pETS, pCompletionArgs->pDependency );
+    if( pCompletionArgs_DeleteTask->pDependency )
+    {
+        enkiDeleteDependency( pETS, pCompletionArgs_DeleteTask->pDependency );
+    }
 
-    free( enkiGetParamsTaskSet( pCompletionArgs->pTaskB ).pArgs );
-    enkiDeleteTaskSet( pETS, pCompletionArgs->pTaskB );
+    free( enkiGetParamsTaskSet( pCompletionArgs_DeleteTask->pTask ).pArgs );
+    enkiDeleteTaskSet( pETS, pCompletionArgs_DeleteTask->pTask );
 
-    enkiDeleteCompletionAction( pETS, pCompletionArgs->pCompletionActionB );
+    enkiDeleteCompletionAction( pETS, pCompletionArgs_DeleteTask->pCompletionAction );
 
     // safe to free our own args in this example as no other function dereferences them
-    free( pCompletionArgs );
+    free( pCompletionArgs_DeleteTask );
 }
 
 void TaskSetFunc( uint32_t start_, uint32_t end_, uint32_t threadnum_, void* pArgs_ )
@@ -134,28 +119,29 @@ int main(int argc, const char * argv[])
     struct enkiTaskSet*               pTaskSetB;
     struct enkiCompletionAction*      pCompletionActionB;
     struct TaskSetArgs*               pTaskSetArgsA;
-    struct CompletionArgsA*           pCompletionArgsA;
+    struct CompletionArgs_ModifyTask*           pCompletionArgsA;
     struct enkiParamsCompletionAction paramsCompletionActionA;
     struct TaskSetArgs*               pTaskSetArgsB;
     struct enkiDependency*            pDependencyOfTaskSetBOnCompletionActionA;
-    struct CompletionArgsB*           pCompletionArgsB;
+    struct CompletionArgs_DeleteTask* pCompletionArgs_DeleteTaskA;
+    struct CompletionArgs_DeleteTask* pCompletionArgs_DeleteTaskB;
     struct enkiParamsCompletionAction paramsCompletionActionB;
     int run;
 
     pETS = enkiNewTaskScheduler();
     enkiInitTaskScheduler( pETS );
 
-    for( run=0; run<1000000; ++run )
+    for( run=0; run<10; ++run )
     {
         // Create all this runs tasks and completion actions
         pTaskSetA          = enkiCreateTaskSet( pETS, TaskSetFunc );
         pCompletionActionA = enkiCreateCompletionAction( pETS,
                                                     CompletionFunctionPreComplete_ModifyDependentTask,
-                                                    CompletionFunctionPostComplete_DeleteTaskA );
+                                                    CompletionFunctionPostComplete_DeleteTask );
         pTaskSetB          = enkiCreateTaskSet( pETS, TaskSetFunc );
         pCompletionActionB = enkiCreateCompletionAction( pETS,
                                                     NULL,
-                                                    CompletionFunctionPostComplete_DeleteTaskB );
+                                                    CompletionFunctionPostComplete_DeleteTask );
 
         // Set args for TaskSetA
         pTaskSetArgsA    = malloc(sizeof(struct TaskSetArgs));
@@ -165,14 +151,18 @@ int main(int argc, const char * argv[])
         enkiSetArgsTaskSet( pTaskSetA, pTaskSetArgsA );
 
         // Set args for CompletionActionA, and make dependent on TaskSetA through pDependency
-        pCompletionArgsA = malloc(sizeof(struct CompletionArgsA));
-        pCompletionArgsA->pTaskA = pTaskSetA;
-        pCompletionArgsA->pCompletionActionA = pCompletionActionA;
+        pCompletionArgsA = malloc(sizeof(struct CompletionArgs_ModifyTask));
         pCompletionArgsA->pTaskB = pTaskSetB;
         pCompletionArgsA->run    = run;
+        pCompletionArgs_DeleteTaskA = malloc(sizeof(struct CompletionArgs_DeleteTask));
+        pCompletionArgs_DeleteTaskA->pTask             = pTaskSetA;
+        pCompletionArgs_DeleteTaskA->pCompletionAction = pCompletionActionA;
+        pCompletionArgs_DeleteTaskA->pDependency       = NULL;
+        pCompletionArgs_DeleteTaskA->run               = run;
+
         paramsCompletionActionA = enkiGetParamsCompletionAction( pCompletionActionA );
         paramsCompletionActionA.pArgsPreComplete  = pCompletionArgsA;
-        paramsCompletionActionA.pArgsPostComplete = pCompletionArgsA;  // we use the same args for both but can seperate if desired
+        paramsCompletionActionA.pArgsPostComplete = pCompletionArgs_DeleteTaskA;
         paramsCompletionActionA.pDependency = enkiGetCompletableFromTaskSet( pTaskSetA );
         enkiSetParamsCompletionAction( pCompletionActionA, paramsCompletionActionA );
 
@@ -191,15 +181,15 @@ int main(int argc, const char * argv[])
                            enkiGetCompletableFromTaskSet( pTaskSetB ) );
 
         // Set args for CompletionActionB, and make dependent on TaskSetB through pDependency
-        pCompletionArgsB = malloc(sizeof(struct CompletionArgsB));
-        pCompletionArgsB->pTaskB             = pTaskSetB;
-        pCompletionArgsB->pDependency        = pDependencyOfTaskSetBOnCompletionActionA;
-        pCompletionArgsB->pCompletionActionB = pCompletionActionB;
-        pCompletionArgsB->run                = run;
+        pCompletionArgs_DeleteTaskB = malloc(sizeof(struct CompletionArgs_DeleteTask));
+        pCompletionArgs_DeleteTaskB->pTask              = pTaskSetB;
+        pCompletionArgs_DeleteTaskB->pDependency        = pDependencyOfTaskSetBOnCompletionActionA;
+        pCompletionArgs_DeleteTaskB->pCompletionAction  = pCompletionActionB;
+        pCompletionArgs_DeleteTaskB->run                = run;
 
         paramsCompletionActionB = enkiGetParamsCompletionAction( pCompletionActionB );
         paramsCompletionActionB.pArgsPreComplete  = NULL; // pCompletionActionB does not have a PreComplete function
-        paramsCompletionActionB.pArgsPostComplete = pCompletionArgsB;
+        paramsCompletionActionB.pArgsPostComplete = pCompletionArgs_DeleteTaskB;
         paramsCompletionActionB.pDependency = enkiGetCompletableFromTaskSet( pTaskSetB );
         enkiSetParamsCompletionAction( pCompletionActionB, paramsCompletionActionB );
 
