@@ -114,6 +114,7 @@ int main(int argc, const char * argv[])
     //
     // Note that pTaskSetB must depend on pCompletionActionA NOT pTaskSetA or it could run at the same time as pCompletionActionA
     // so cannot be modified.
+
     struct enkiTaskSet*               pTaskSetA;
     struct enkiCompletionAction*      pCompletionActionA;
     struct enkiTaskSet*               pTaskSetB;
